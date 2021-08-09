@@ -12,7 +12,7 @@ AnalystList = []
 doNotAnalyze = set()
 howMany = 100000
 PRICE_THRESHOLD = 10.0
-MARKETCAP_THRESHOLD = 1000000000.0
+MARKETCAP_THRESHOLD = 1000.0
 ANALYST_THRESHOLD = 8
 
 
@@ -21,16 +21,19 @@ saveFile = open("StockInfo.txt", "w")
 
 PriceWeight = 0.0
 MarketCapWeight = 0.0
-DividendWeight = 0.05
+DividendWeight = 0.1
 AnalystWeight = 0.1
 BuyWeight = 0.3
 OverweightWeight = 0.1
-HoldWeight = -0.1
-UnderweightWeight = -0.3
+HoldWeight = -0.3
+UnderweightWeight = -0.4
 SellWeight = -0.5
-LowcastWeight = 0.6
-ForecastWeight = 0.4
-HighcastWeight = 0.1
+LowcastWeight = 0.5
+ForecastWeight = 0.8
+HighcastWeight = 0.0
+
+RankingWeight = 0.5
+PointWeight = 0.5
 
 price = 0.0
 marketCap = 0
@@ -96,7 +99,7 @@ if (opMode == 0 or opMode == 1):
                 multiFactor = 1000000000
             elif(marketCapStr[-1] == 'M'):
                 multiFactor = 1000000
-            marketCap = float(marketCapStr[0:len(marketCapStr)-1]) * multiFactor
+            marketCap = round(float(marketCapStr[0:len(marketCapStr)-1]) * multiFactor, 1)
         except:
                 marketCap = 0
         
@@ -156,6 +159,7 @@ if (opMode == 0 or opMode == 1):
             print(f"{symbol+1} out of {howMany}: {data}")
 
 PointList = copy.deepcopy(AnalystList)
+RankingList = copy.deepcopy(AnalystList)
 
 WeightList = [None, PriceWeight, MarketCapWeight, DividendWeight, AnalystWeight, BuyWeight, OverweightWeight, HoldWeight, UnderweightWeight, SellWeight, LowcastWeight, ForecastWeight, HighcastWeight]
 for c in range(1, len(PointList[0])):
@@ -164,8 +168,18 @@ for c in range(1, len(PointList[0])):
         PointList[r][c] = PointList[r][c] / PointList[len(PointList)-1][c]
         PointList[r][c] = round(PointList[r][c], 4)
 
+for c in range(1, len(RankingList[0])):
+    RankingList.sort(key=lambda x: x[c])
+    for r in range(len(RankingList)):
+        RankingList[r][c] = (r + 1) / len(RankingList)
+
+RankingList.sort(key=lambda x: x[0])
 PointList.sort(key=lambda x: x[0])
 AnalystList.sort(key=lambda x: x[0])
+for r in range(len(PointList)):
+    for c in range(1, len(PointList[0])):
+        PointList[r][c] = PointList[r][c] * PointWeight + RankingList[r][c] * RankingWeight
+
 for r in range(len(PointList)):
     points = 0
     for c in range(1, len(WeightList)):
