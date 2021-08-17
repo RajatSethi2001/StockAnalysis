@@ -1,4 +1,3 @@
-import finnhub
 import requests
 import time
 import re
@@ -7,57 +6,61 @@ import os
 import asyncio
 import aiohttp
 
-finnhub_client = finnhub.Client(api_key="YOUR_FINNHUB_KEY")
-symbolDict = finnhub_client.stock_symbols('US')
-symbolList = []
-AnalystList = []
-doNotAnalyze = set()
-howMany = 100000
-symbolNum = 0
-PRICE_THRESHOLD = 100000000.0
-MARKETCAP_THRESHOLD = 1000000000.0
-ANALYST_THRESHOLD = 6
-
-
 backupFile = open("backup.txt", "r+")
 saveFile = open("StockInfo.txt", "w")
+nasdaqFile = open("nasdaqFile.txt", "w+")
+nyseFile = open("nyseFile.txt", "w+")
+os.system("bash ./nasdaq.sh > nasdaqFile.txt")
+os.system("bash ./nyse.sh > nyseFile.txt")
+
+nasdaqList = nasdaqFile.readlines()
+nyseList = nyseFile.readlines()
+symbolDict = {}
+
+for line in range(len(nasdaqList)):
+    nasdaqList[line] = nasdaqList[line].split(" ")
+    symbolDict[nasdaqList[line][0]] = "NASDAQ"
+
+for line in range(len(nyseList)):
+    nyseList[line] = nyseList[line].split(" ")
+    if (nyseList[line][2] == "N"):
+        symbolDict[nyseList[line][0]] = "NYSE"
+
+AnalystList = []
+symbolNum = 0
+PRICE_THRESHOLD = 100000000.0
+MARKETCAP_THRESHOLD = 0.0
+ANALYST_THRESHOLD = 6
 
 PriceWeight = 0.0
 MarketCapWeight = 0.0
 DividendWeight = 0.05
 AnalystWeight = 0.0
-BuyWeight = 0.5
-OverweightWeight = 0.3
-HoldWeight = -0.3
+BuyWeight = 0.8
+OverweightWeight = 0.5
+HoldWeight = -0.5
 SellWeight = -0.5
 LowcastWeight = 0.8
-ForecastWeight = 0.8
+ForecastWeight = 1.2
 HighcastWeight = 0.05
 
 RankingWeight = 0.6
 PointWeight = 0.4
 
-async def fetch(session, url):
+async def fetch(session, url, ticker):
     async with session.get(url) as resp:
-        return await resp.text()
+        try:
+            text = await resp.text()
+            await scrape(text, ticker)
+        except:
+            pass
 
-async def fetch_all(session, urls, ticker):
-    tasks = []
-    CNBCTask = asyncio.create_task(fetch(session, urls[0]))
-    tasks.append(CNBCTask)
-    CNNTask = asyncio.create_task(fetch(session, urls[1]))
-    tasks.append(CNNTask)
-    results = await asyncio.gather(*tasks)
-    if (re.search("NYSE", results[1]) == None):
-        urls[2] = f"{urls[2]}/NASDAQ/{ticker}/price-target/"
-    else:
-        urls[2] = f"{urls[2]}/NYSE/{ticker}/price-target/"
-    MarketTask = await fetch(session, urls[2])
-    results.append(MarketTask)
-    return results
-
-async def scrape(texts, ticker):
+async def scrape(text, ticker):
     global symbolNum
+    global ANALYST_THRESHOLD
+    global PRICE_THRESHOLD
+    global MARKETCAP_THRESHOLD
+    global AnalystList
     price = 0.0
     marketCap = 0
     dividendYield = 0.0
@@ -71,42 +74,45 @@ async def scrape(texts, ticker):
     lowcast = -100.0
     forecast = -100.0
     highcast = -100.0
-
-    CNBCSource = texts[0].replace("\n","").replace(" ","").replace(",","")
-    CNNSource = texts[1].replace("\n","").replace(" ","").replace(",","")
-    MarketSource = texts[2].replace("\n","").replace(" ","").replace(",","")
+    
+    MarketSource = text.replace("\n","").replace(" ","").replace(",","")
 
     try:
-        marketCapStr = re.search('MarketCap.*-value">([0-9]*\.[0-9]*(M|B|T)).*SharesOut', CNBCSource).group(1)
+        marketCapStr = re.search('MarketCapitalization<strong>\$([0-9]+\.[0-9]*(m|b|t))', MarketSource).group(1)
         multiFactor = 0
-        if (marketCapStr[-1] == 'T'):
+        if (marketCapStr[-1] == 't'):
             multiFactor = 1000000000000
-        elif(marketCapStr[-1] == 'B'):
+        elif(marketCapStr[-1] == 'b'):
             multiFactor = 1000000000
-        elif(marketCapStr[-1] == 'M'):
+        elif(marketCapStr[-1] == 'm'):
             multiFactor = 1000000
-        marketCap = round(float(marketCapStr[0:len(marketCapStr)-1]) * multiFactor, 1)
+        marketCap = int(float(marketCapStr[0:len(marketCapStr)-1]) * multiFactor)
     except:
         marketCap = 0
-                    
-    try:
-        price = float(re.search('Open.*-price">([0-9]*\.[0-9]*).*-name">DayHigh', CNBCSource).group(1))
-    except:
-        price = 0
 
     try:
-        dividendYield = float(re.search('DividendYield.*-price">([0-9]*\.[0-9]*)%.*Beta', CNBCSource).group(1))
+        dividendYield = float(re.search('DividendYield<strong>([0-9]+\.[0-9]*)%', MarketSource).group(1))
     except:
         dividendYield = 0
 
     try:
-        highcast = round(float(re.search('highestimateof(.*)andalow', CNNSource).group(1)) * 100/price - 100, 2)
-        forecast = float(re.search('representsa<spanclass="(pos|neg)Data">(.*)%</span>(incr|decr)', CNNSource).group(2))
-        lowcast = round(float(re.search('lowestimateof(.*)\.Themediane', CNNSource).group(1)) * 100/price - 100, 2)
-                            
+        price = float(re.search("'price'><strong>\$([0-9]+\.[0-9]*)</strong>", MarketSource).group(1))
+    except:
+        price = 0
+
+    try:
+        lowcast = round(float(re.search(f'thelowpricetargetfor{ticker}is\$([0-9]+\.[0-9]*)\.', MarketSource).group(1)) * 100/price - 100, 2)          
     except:
         lowcast = -100
+        
+    try:
+        forecast = round(float(re.search('averagetwelve\-monthpricetargetis\$([0-9]+\.[0-9]*)predicting', MarketSource).group(1)) * 100/price - 100, 2)
+    except:
         forecast = -100
+    
+    try:
+        highcast = round(float(re.search(f'Thehighpricetargetfor{ticker}is\$([0-9]+\.[0-9]*)and', MarketSource).group(1)) * 100/price - 100, 2)
+    except:
         highcast = -100
 
     try:
@@ -130,29 +136,20 @@ async def scrape(texts, ticker):
     data = (f"{ticker},{price},{marketCap},{dividendYield},{analysts},{Buy},{Overweight},{Hold},{Sell},{lowcast},{forecast},{highcast}")
     backupFile.write(f"{data}\n")
     symbolNum += 1
-    if (len(ticker) < 5 and price <= PRICE_THRESHOLD and price != 0 and marketCap >= MARKETCAP_THRESHOLD and analysts >= ANALYST_THRESHOLD):
+    #print([price, marketCap, analysts])
+    if (price <= PRICE_THRESHOLD and price != 0 and marketCap >= MARKETCAP_THRESHOLD and analysts >= ANALYST_THRESHOLD):
         AnalystList.append([ticker,price,marketCap,dividendYield,analysts,Buy,Overweight,Hold,Sell,lowcast,forecast,highcast])
-        print(f"{symbolNum+1} out of {howMany}: {data}")
+        print(f"{symbolNum+1}: {data}")
 
-async def runAll(session, urls, ticker):
-    await asyncio.sleep(1)
-    texts = await fetch_all(session, urls, ticker)
-    await scrape(texts, ticker)
-
-async def main(howMany, symbolList):
+async def main(symbolDict):
     async with aiohttp.ClientSession() as session:
         tasks = []
-        for symbol in range(howMany):
-            ticker = symbolList[symbol]
-            urls = [f"https://www.cnbc.com/quotes/{ticker}?qsearchterm={ticker}",
-                    f"https://money.cnn.com/quote/forecast/forecast.html?symb={ticker}",
-                    f"https://www.marketbeat.com/stocks"]
-
-            task = asyncio.create_task(runAll(session, urls, ticker))
+        for ticker in symbolDict.keys():
+            url = f"https://www.marketbeat.com/stocks/{symbolDict[ticker]}/{ticker}/price-target/"
+            task = asyncio.create_task(fetch(session, url, ticker))
             tasks.append(task)
 
         await asyncio.gather(*tasks)
-
 
 opMode = 0
 try:
@@ -175,20 +172,13 @@ for datastr in backupData:
     for i in range(1, len(data)):
         data[i] = float(data[i])
 
-    if (len(data[0]) < 5 and data[1] <= PRICE_THRESHOLD and data[1] != 0 and data[2] >= MARKETCAP_THRESHOLD and data[4] >= ANALYST_THRESHOLD):
+    if (data[1] <= PRICE_THRESHOLD and data[1] != 0 and data[2] >= MARKETCAP_THRESHOLD and data[4] >= ANALYST_THRESHOLD):
         AnalystList.append(data)
     
-    doNotAnalyze.add(data[0])
+    symbolDict.pop(data[0])
 
 if (opMode == 0 or opMode == 1):
-    for symbol in symbolDict:
-        if (symbol['symbol'] not in doNotAnalyze and len(symbol['symbol']) < 5):
-            symbolList.append(symbol['symbol'])
-
-    if (howMany > len(symbolList)):
-        howMany = len(symbolList)
-
-    asyncio.run(main(howMany, symbolList))    
+    asyncio.run(main(symbolDict))  
 
 PointList = copy.deepcopy(AnalystList)
 RankingList = copy.deepcopy(AnalystList)
