@@ -28,24 +28,40 @@ for line in range(len(nyseList)):
 
 AnalystList = []
 symbolNum = 0
-PRICE_THRESHOLD = 5.00
-MARKETCAP_THRESHOLD = 0.0
-ANALYST_THRESHOLD = 6
+PRICE_THRESHOLD = 10000000000.00
+MARKETCAP_THRESHOLD = 0000000000.0
+ANALYST_THRESHOLD = 7
 
 PriceWeight = 0.0
 MarketCapWeight = 0.0
 DividendWeight = 0.0
 AnalystWeight = 0.0
-BuyWeight = 20
-OverweightWeight = 50
-HoldWeight = -20
-SellWeight = -60
-LowcastWeight = 80
-ForecastWeight = 100
-HighcastWeight = 10
+BuyWeight = 10
+OverweightWeight = 30
+HoldWeight = -30
+SellWeight = -50
+LowcastWeight = 10
+ForecastWeight = 45
+HighcastWeight = 5
 
-RankingWeight = 0.75
-PointWeight = 0.25
+RankingWeight = 0.5
+PointWeight = 0.5
+
+def checkConditions(data):
+    price = data[1]
+    marketCap = data[2]
+    analysts = data[4]
+    forecast = data[10]
+    if (price == 0 or price > PRICE_THRESHOLD):
+        return False
+    elif (marketCap == 0 or marketCap < MARKETCAP_THRESHOLD):
+        return False
+    elif (analysts == 0 or analysts < ANALYST_THRESHOLD):
+        return False
+    elif (forecast == -100 or forecast > 1000):
+        return False
+    else:
+        return True
 
 async def fetch(session, url, ticker):
     async with session.get(url) as resp:
@@ -125,6 +141,10 @@ async def scrape(text, ticker):
         Hold = int(AnalystArray[1])
         Sell = int(AnalystArray[0])
         analysts = Buy + Overweight + Hold + Sell
+        Buy = round(Buy ** 2 / analysts, 4)
+        Overweight = round(Overweight ** 2 / analysts, 4)
+        Hold = round(Hold ** 2 / analysts, 4)
+        Sell = round(Sell ** 2 / analysts, 4)
 
     except:
         analysts = 0
@@ -134,11 +154,12 @@ async def scrape(text, ticker):
         Sell = 0
             
     data = (f"{ticker},{price},{marketCap},{dividendYield},{analysts},{Buy},{Overweight},{Hold},{Sell},{lowcast},{forecast},{highcast}")
+    arrData = [ticker,price,marketCap,dividendYield,analysts,Buy,Overweight,Hold,Sell,lowcast,forecast,highcast]
     backupFile.write(f"{data}\n")
     symbolNum += 1
     #print([price, marketCap, analysts])
-    if (price <= PRICE_THRESHOLD and price != 0 and marketCap >= MARKETCAP_THRESHOLD and analysts >= ANALYST_THRESHOLD):
-        AnalystList.append([ticker,price,marketCap,dividendYield,analysts,Buy,Overweight,Hold,Sell,lowcast,forecast,highcast])
+    if (checkConditions(arrData)):
+        AnalystList.append(arrData)
         print(f"{symbolNum+1}: {data}")
 
 async def main(symbolDict):
@@ -170,9 +191,9 @@ backupData = backupFile.readlines()
 for datastr in backupData:
     data = datastr.split(",")
     for i in range(1, len(data)):
-        data[i] = float(data[i])
+        data[i] = round(float(data[i]), 4)
 
-    if (data[1] <= PRICE_THRESHOLD and data[1] != 0 and data[2] >= MARKETCAP_THRESHOLD and data[4] >= ANALYST_THRESHOLD):
+    if (checkConditions(data)):
         AnalystList.append(data)
 
     try:
